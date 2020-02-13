@@ -20,23 +20,44 @@ data.
 DATA_PATH = '..\\data\\evolving_hockey\\{}_RAPM_2009_2020.csv'
 
 GAMESTATE_USECOLS_MAPPING = {  # Just do we don't read unnecessary columns
-    'EV': ['EH_ID', 'Season', 'Position', 'Birthday', 'xGF/60', 'xGA/60'],
-    'PP': ['EH_ID', 'Season', 'Position', 'Birthday', 'xGF/60'],
-    'SH': ['EH_ID', 'Season', 'Position', 'Birthday', 'xGA/60']
+    'EV': ['EH_ID', 'Season', 'Position', 'Birthday', 'Team', 'GP', 'xGF/60', 'xGA/60'],
+    'PP': ['EH_ID', 'Season', 'Position', 'Birthday', 'Team', 'GP', 'xGF/60'],
+    'SH': ['EH_ID', 'Season', 'Position', 'Birthday', 'Team', 'GP', 'xGA/60']
 }
 
 
 def add_to_dict(dictionary, dict_value, dataframe, column, ascending=True):
     total = float(len(dataframe))
-    for index, row in dataframe.sort_values(column, axis=0, ascending=ascending).reset_index().iterrows():
+    iterable_df = dataframe.sort_values(column, axis=0, ascending=ascending).reset_index()
+    print('Top 10 player seasons, out of {} for'.format(total), dict_value)
+    # print(iterable_df.head(100))
+
+    for index, row in iterable_df.iterrows():
         # Use a combination of player name, birth year, and season to make sure each player_season is unique
         player_season = '{}_{}_{}'.format(row['EH_ID'], row['Birthday'].split('-')[0], row['Season'])
         if dictionary.get(player_season, None):
-            dictionary[player_season][dict_value] = (float(index) / total) * 100.0
+            if dictionary[player_season].get(dict_value, False):
+                # If this condition is met, that means a value has already been initialized for this player-season. This
+                # implies the player was traded mid-season, and thus has more than one different player-seasons logged
+                # for the same season, which implies he was traded mid-season. In this case, we average the values
+                # across the different teams weighted by games-played.
+                value_old = dictionary[player_season][dict_value]
+                gp_old = dictionary[player_season]['GP']
+                value_new = 100 - (float(index) / total * 100)
+                gp_new = float(row['GP'])
+                avg_value = (gp_old / (gp_new + gp_old)) * value_old + (gp_new / (gp_old + gp_old)) * value_new
+                dictionary[player_season][dict_value] = avg_value
+                dictionary[player_season]['team'] += '/{}'.format(row['Team'])
+                dictionary[player_season]['GP'] += float(row['GP'])
+
+            else:
+                dictionary[player_season][dict_value] = 100 - ((float(index) / total) * 100.0)
         else:
             dictionary[player_season] = {
                 'position': row['Position'],
-                dict_value: float(index) / total
+                dict_value: 100 - (float(index) / total * 100),
+                'team': row['Team'],
+                'GP': float(row['GP'])
             }
 
     return dictionary
@@ -91,6 +112,7 @@ def write_csv_from_dict(dictionary):
 if __name__ == '__main__':
     print("Let's get started")
     master_dictionary = create_dict()
+    print(master_dictionary['SETH.JONES_1994_15-16'])
     print("Dictionary created, writing to csv...")
     write_csv_from_dict(master_dictionary)
     print('All done')
